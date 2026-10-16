@@ -1,26 +1,29 @@
-# pdf-rag-streamlit.py
+# pdf-app.py  (Streamlit Cloud version, uses Gemini)
 
 import os
 import logging
 import streamlit as st
-import ollama
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
 logging.basicConfig(level=logging.INFO)
 
-# Constants
+# Constants (model names change often; check ai.google.dev if one stops working)
 DOC_PATH = "./data/BOI.pdf"
-MODEL_NAME = "llama3.2"
-EMBEDDING_MODEL = "nomic-embed-text"
+CHAT_MODEL = "gemini-3.5-flash"
+EMBEDDING_MODEL = "models/gemini-embedding-2"
 VECTOR_STORE_NAME = "simple-rag"
-PERSIST_DIRECTORY = "./chroma_db"
-USE_MULTI_QUERY = False  # True = better recall but much slower on a CPU
+GOOGLE_API_KEY = "AIzaSyAT_kvPU9T3s7mD7hGcWwARi6jXRWFAfjw"
+# Read the key by its NAME from Streamlit secrets. Never paste the key here.
+if "GOOGLE_API_KEY" not in st.secrets:
+    st.error("Missing GOOGLE_API_KEY in Streamlit secrets.")
+    st.stop()
+API_KEY = st.secrets["GOOGLE_API_KEY"]
 
 
 def ingest_pdf(doc_path):
@@ -42,46 +45,29 @@ def format_docs(docs):
     return "\n\n".join(d.page_content for d in docs)
 
 
-@st.cache_resource(show_spinner="Loading vector database (first run can take a minute)...")
+@st.cache_resource(show_spinner="Building the vector database (first run can take a minute)...")
 def load_vector_db():
-    # Pull the embedding model only if it is not installed yet
-    installed = [m.model for m in ollama.list().models]
-    if not any(name.startswith(EMBEDDING_MODEL) for name in installed):
-        ollama.pull(EMBEDDING_MODEL)
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model=EMBEDDING_MODEL, google_api_key=API_KEY
+    )
+    chunks = split_documents(ingest_pdf(DOC_PATH))
 
+    # In-memory database: rebuilt when the app restarts, cached while it runs
     vector_db = Chroma(
         collection_name=VECTOR_STORE_NAME,
-        embedding_function=OllamaEmbeddings(model=EMBEDDING_MODEL),
-        persist_directory=PERSIST_DIRECTORY,
+        embedding_function=embeddings,
     )
-
-    # Build the database only if it is empty (Chroma saves automatically)
-    if len(vector_db.get()["ids"]) == 0:
-        chunks = split_documents(ingest_pdf(DOC_PATH))
-        batch = 8
-        for i in range(0, len(chunks), batch):
-            vector_db.add_documents(chunks[i:i + batch])
-        logging.info("Vector database created and persisted.")
-    else:
-        logging.info("Loaded existing vector database.")
+    batch = 16
+    for i in range(0, len(chunks), batch):
+        vector_db.add_documents(chunks[i:i + batch])
+    logging.info("Vector database created.")
     return vector_db
 
 
 @st.cache_resource(show_spinner="Loading the model...")
 def get_chain():
-    llm = ChatOllama(model=MODEL_NAME, num_ctx=2048, num_predict=400)
-    vector_db = load_vector_db()
-
-    if USE_MULTI_QUERY:
-        try:
-            from langchain.retrievers.multi_query import MultiQueryRetriever
-        except ImportError:
-            from langchain_classic.retrievers.multi_query import MultiQueryRetriever
-        retriever = MultiQueryRetriever.from_llm(
-            vector_db.as_retriever(search_kwargs={"k": 3}), llm
-        )
-    else:
-        retriever = vector_db.as_retriever(search_kwargs={"k": 3})
+    llm = ChatGoogleGenerativeAI(model=CHAT_MODEL, google_api_key=API_KEY)
+    retriever = load_vector_db().as_retriever(search_kwargs={"k": 4})
 
     prompt = ChatPromptTemplate.from_template(
         """Answer the question based ONLY on the following context:
