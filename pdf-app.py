@@ -18,7 +18,7 @@ DOC_PATH = "./data/BOI.pdf"
 CHAT_MODEL = "gemini-3.5-flash"
 EMBEDDING_MODEL = "models/gemini-embedding-2"
 VECTOR_STORE_NAME = "simple-rag"
-GOOGLE_API_KEY = "AIzaSyAT_kvPU9T3s7mD7hGcWwARi6jXRWFAfjw"
+
 # Read the key by its NAME from Streamlit secrets. Never paste the key here.
 if "GOOGLE_API_KEY" not in st.secrets:
     st.error("Missing GOOGLE_API_KEY in Streamlit secrets.")
