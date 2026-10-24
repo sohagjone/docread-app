@@ -1,9 +1,10 @@
-streamlit
+streamlit>=1.50
 langchain-google-genai
-langchain-community
 langchain-core
 langchain-text-splitters
-langchain-ollama
-langchain-chroma
-chromadb
 pypdf
+python-docx
+python-pptx
+openpyxl
+xlrd
+pandas
